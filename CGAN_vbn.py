@@ -34,6 +34,8 @@ parser.add_argument("--n_classes", type=int, default=10, help="number of classes
 parser.add_argument("--img_size", type=int, default=32, help="size of each image dimension")
 parser.add_argument("--channels", type=int, default=1, help="number of image channels")
 parser.add_argument("--sample_interval", type=int, default=400, help="interval between image sampling")
+parser.add_argument("--trial", type=int, default=1, help="-th trial")
+
 opt = parser.parse_args()
 print(opt)
 
@@ -208,3 +210,12 @@ for epoch in range(opt.n_epochs):
         batches_done = epoch * len(dataloader) + i
         if batches_done % opt.sample_interval == 0:
             sample_image(n_row=10, batches_done=batches_done)
+
+# Save model
+os.makedirs("./data/ckpt", exist_ok=True)
+ckpt_path = os.path.join("./data/ckpt", f"CGAN_vbn_trial{opt.trial}.pth")
+torch.save({
+    "generator": generator.state_dict(),
+    "discriminator": discriminator.state_dict()
+}, ckpt_path)
+print("Saved checkpoint:", ckpt_path)
