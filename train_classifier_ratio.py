@@ -1,5 +1,4 @@
 import os, argparse
-from torch._C import device
 from tqdm import tqdm
 import numpy as np
 import torch
@@ -32,15 +31,17 @@ parser.add_argument("--channels", type=int, default=1, help="number of image cha
 parser.add_argument("--model", type=str, default="ResNet18", help="model name")
 parser.add_argument("--confidence", type=int, default=0.7, help="confidence score for training classifier with generated images")
 
-parser.add_argument("--generated", type=bool, default=False, help="use generated image or not")
-parser.add_argument("--generator_path", type=str, default="", help="pretrained generator")
-parser.add_argument("--gan_model", type=str, default="DCGAN_2", choices=["DCGAN_2", "DCGAN_2_vbn", "CGAN", "CGAN_vbn"], help="kind of generator that we will use to generate image")
+parser.add_argument("--ratio", type=float, default=0.5, help="ratio of real image, real : synthetic")
+parser.add_argument("--generator_path", type=str, default="/root/CW2/Coursework2/data/ckpt/CGAN_trial1.pth", help="pretrained generator")
+parser.add_argument("--gan_model", type=str, default="CGAN", choices=["DCGAN_2", "DCGAN_2_vbn", "CGAN", "CGAN_vbn"], help="kind of generator that we will use to generate image")
 parser.add_argument("--trial", type=int, default=1, help="-th trial")
 parser.add_argument("--ckpt_dir", type=str, default="./classifier_ckpt", help="checkpoint path of trained classifier")
 parser.add_argument("--ckpt_path", type=str, default=None, help="Resume training from this checkpoint")
 
 opt = parser.parse_args()
 print(opt)
+
+opt.img_shape = (opt.channels, opt.img_size, opt.img_size)
 
 if torch.cuda.is_available():
     opt.device = torch.device("cuda")
@@ -51,7 +52,8 @@ else:
     opt.Tensor = torch.FloatTensor
     opt.LongTensor = torch.LongTensor
 
-opt.img_shape = (opt.channels, opt.img_size, opt.img_size)
+opt.real_batch = int(opt.batch_size * opt.ratio)
+opt.synthetic_batch = opt.batch_size - opt.real_batch
 
 # data loading
 os.makedirs("./data/mnist", exist_ok=True)
@@ -61,28 +63,35 @@ transform = transforms.Compose(
             transforms.Normalize([0.5], [0.5])]
             )
 
-train_dataloader = DataLoader(
-    datasets.MNIST(
-        "./data/mnist",
-        train=True,
-        download=True,
-        transform=transform,
-    ),
-    batch_size=opt.batch_size,
-    shuffle=True,
-    num_workers=2
-)
-test_dataloader = DataLoader(
-    datasets.MNIST(
-        "./data/mnist",
-        train=False,
-        download=True,
-        transform=transform,
-    ),
-    batch_size=opt.batch_size,
-    shuffle=False,
-    num_workers=2
-)
+train_dataset = datasets.MNIST(
+                    "./data/mnist",
+                    train=True,
+                    download=True,
+                    transform=transform,
+                )
+test_dataset = datasets.MNIST(
+                    "./data/mnist",
+                    train=False,
+                    download=True,
+                    transform=transform,
+                )
+
+real_train_size = int(opt.ratio * len(train_dataset))
+synthetic_train_size = len(train_dataset) - real_train_size
+real_train_dataset, synthetic_train_dataset = torch.utils.data.random_split(train_dataset, [real_train_size, synthetic_train_size])
+
+real_train_dataloader = DataLoader(real_train_dataset, 
+                                   batch_size=opt.real_batch,
+                                   shuffle=True,
+                                   num_workers=2)
+synthetic_train_dataloader = DataLoader(synthetic_train_dataset, 
+                                        batch_size=opt.synthetic_batch,
+                                        shuffle=True,
+                                        num_workers=2)
+test_dataloader = DataLoader(test_dataset,
+                             batch_size=opt.batch_size,
+                             shuffle=False,
+                             num_workers=2)
 
 
 def valid(opt, global_step):
@@ -126,67 +135,69 @@ def train(opt, best):
     test_acc = []
 
     # load generator
-    if opt.generated:
-        if opt.gan_model == "DCGAN_2":
-            generator = DCGAN_G(opt)
-        elif opt.gan_model == "DCGAN_2_vbn":
-            generator = DCGAN_vbn_G(opt)
-        elif opt.gan_model == "CGAN":
-            generator = CGAN_G(opt)
-        elif opt.gan_model == "CGAN_vbn":
-            generator = CGAN_vbn_G(opt)
-        
-        ckpt_G = torch.load(opt.generator_path)
-        try:
-            generator.load_state_dict(ckpt_G['generator'])
-        except RuntimeError as e:
-            print('wrong checkpoint')
-        else:    
-            print('generator checkpoint is loaded !')
+    if opt.gan_model == "DCGAN_2":
+        generator = DCGAN_G(opt)
+    elif opt.gan_model == "DCGAN_2_vbn":
+        generator = DCGAN_vbn_G(opt)
+    elif opt.gan_model == "CGAN":
+        generator = CGAN_G(opt)
+    elif opt.gan_model == "CGAN_vbn":
+        generator = CGAN_vbn_G(opt)
     
-        generator.to(opt.device)
+    ckpt_G = torch.load(opt.generator_path)
+    try:
+        generator.load_state_dict(ckpt_G['generator'])
+    except RuntimeError as e:
+        print('wrong checkpoint')
+    else:    
+        print('generator checkpoint is loaded !')
+
+    generator.to(opt.device)
 
     for epoch in range(opt.n_epochs):
         model.train()
-        epoch_iterator = tqdm(train_dataloader,
+        epoch_iterator = tqdm(zip(real_train_dataloader, synthetic_train_dataloader),
                               bar_format="{l_bar}{r_bar}",
                               dynamic_ncols=True)
         
-        for step, data in enumerate(epoch_iterator):
-            inputs, labels = data
-            inputs = inputs.to(opt.device)
-            labels = labels.to(opt.device)
+        for step, (data_real, data_synthetic) in enumerate(epoch_iterator):
+            real_inputs, real_labels = data_real
+            syn_inputs, _ = data_synthetic
+            real_inputs = real_inputs.to(opt.device)
+            real_labels = real_labels.to(opt.device)
+            syn_inputs = syn_inputs.to(opt.device)
 
-            if opt.generated:
-                z = Variable(opt.Tensor(np.random.normal(0, 1, (inputs.shape[0], opt.latent_dim))))
-                gen_labels = Variable(opt.LongTensor(np.random.randint(0, opt.n_classes, opt.batch_size)))
+            # synthetic image
+            z = Variable(opt.Tensor(np.random.normal(0, 1, (syn_inputs.shape[0], opt.latent_dim))))
+            gen_labels = Variable(opt.LongTensor(np.random.randint(0, 10, opt.synthetic_batch)))
 
-                if (opt.gan_model == "DCGAN_2") or (opt.gan_model == "DCGAN_2_vbn"): 
-                    with torch.no_grad():
-                        gen_imgs = generator(z)
-                else:
-                    with torch.no_grad():
-                        gen_imgs = generator(z, gen_labels)
-                
-                # https://towardsdatascience.com/artificial-data-for-image-classification-5b2ede40640f
-                logits = model(gen_imgs)
-                pred_labels = torch.argmax(logits,1)
-                confidence = opt.confidence
-
-                prob = F.softmax(logits, dim=1)
-                mostlikely = np.asarray([prob[i, pred_labels[i]].item() for i in range(len(prob))])
-                want_keep = mostlikely > confidence
-                weight = len(prob) / len(want_keep)
-                loss = 1 * weight
-                if sum(want_keep) != 0:
-                    loss = criterion(logits[want_keep], pred_labels[want_keep]) * weight
-                
-                loss.backward()
-
+            if (opt.gan_model == "DCGAN_2") or (opt.gan_model == "DCGAN_2_vbn"): 
+                with torch.no_grad():
+                    gen_imgs = generator(z)
             else:
-                logits = model(inputs)
-                loss = criterion(logits, labels)
-                loss.backward()
+                with torch.no_grad():
+                    gen_imgs = generator(z, gen_labels)
+            
+            # https://towardsdatascience.com/artificial-data-for-image-classification-5b2ede40640f
+            syn_logits = model(gen_imgs)
+            pred_labels = torch.argmax(syn_logits,1)
+            confidence = opt.confidence
+
+            prob = F.softmax(syn_logits, dim=1)
+            mostlikely = np.asarray([prob[i, pred_labels[i]].item() for i in range(len(prob))])
+            want_keep = mostlikely > confidence
+            weight = len(prob) / len(want_keep)
+            syn_loss = 10 * weight
+            if sum(want_keep) != 0:
+                syn_loss = criterion(syn_logits[want_keep], pred_labels[want_keep]) * weight
+                
+            # real image
+            real_logits = model(real_inputs)
+            real_loss = criterion(real_logits, real_labels)
+            
+            
+            loss = real_loss + syn_loss
+            loss.backward()
 
             optimizer.step()
             optimizer.zero_grad()
@@ -207,13 +218,13 @@ def train(opt, best):
         
             if best_acc < accuracy:
                 best_acc = accuracy
-                ckpt_path = os.path.join(opt.ckpt_dir, f"{opt.model}_trial{opt.trial}_best.pth")
+                ckpt_path = os.path.join(opt.ckpt_dir, f"{opt.model}_ratio_{opt.ratio}_trial{opt.trial}_best.pth")
                 torch.save({
                     "model": model.state_dict(),
                     "optimizer": optimizer.state_dict(),
                     'best_acc': best_acc
                 }, ckpt_path)
-            
+
             if (global_step % 400 == 0):
                 print('\nEval) global step: {}, Average loss: {:.4f}, Eval Accuracy: {:.4f}'.format(
                     global_step, 
