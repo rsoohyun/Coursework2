@@ -19,7 +19,7 @@ from DCGAN_2_vbn import Generator as DCGAN_vbn_G
 from CGAN_vbn import Generator as CGAN_vbn_G
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--n_epochs", type=int, default=200, help="number of epochs of training")
+parser.add_argument("--n_epochs", type=int, default=30, help="number of epochs of training")
 parser.add_argument("--batch_size", type=int, default=64, help="size of the batches")
 parser.add_argument("--lr", type=float, default=0.0002, help="adam: learning rate")
 parser.add_argument("--b1", type=float, default=0.5, help="adam: decay of first order momentum of gradient")
@@ -29,7 +29,7 @@ parser.add_argument("--latent_dim", type=int, default=100, help="dimensionality 
 parser.add_argument("--n_classes", type=int, default=10, help="number of classes for dataset")
 parser.add_argument("--img_size", type=int, default=32, help="size of each image dimension")
 parser.add_argument("--channels", type=int, default=1, help="number of image channels")
-parser.add_argument("--model", type=str, default="ResNet18", help="model name")
+parser.add_argument("--model", type=str, default="vgg8", help="model name")
 parser.add_argument("--confidence", type=int, default=0.7, help="confidence score for training classifier with generated images")
 
 parser.add_argument("--generated", type=bool, default=False, help="use generated image or not")
@@ -214,7 +214,7 @@ def train(opt, best):
                     'best_acc': best_acc
                 }, ckpt_path)
             
-            if (global_step % 400 == 0):
+            if (global_step % 200 == 0):
                 print('\nEval) global step: {}, Average loss: {:.4f}, Eval Accuracy: {:.4f}'.format(
                     global_step, 
                     test_loss_v,
@@ -251,7 +251,7 @@ if opt.ckpt_path is not None:
 
 train_step, train_loss, test_step, test_loss, test_acc = train(opt, best_acc)
 
-fig_recon, ax_recon = plt.subplots(3,1)
+fig_recon, ax_recon = plt.subplots(2,1)
 ax_recon[0].plot(train_step, train_loss)
 ax_recon[0].set_xlabel("global step")
 ax_recon[0].set_ylabel("train loss")
@@ -262,10 +262,10 @@ ax_recon[1].set_xlabel("global step")
 ax_recon[1].set_ylabel("test loss")
 ax_recon[1].set_title("Test/loss")
 
-ax_recon[2].plot(test_step, test_acc)
-ax_recon[2].set_xlabel("global step")
-ax_recon[2].set_ylabel("test accuracy")
-ax_recon[2].set_title("Test/Accuracy")
+# ax_recon[2].plot(test_step, test_acc)
+# ax_recon[2].set_xlabel("global step")
+# ax_recon[2].set_ylabel("test accuracy")
+# ax_recon[2].set_title("Test/Accuracy")
 
 fig_recon.tight_layout(pad=2.0)
 

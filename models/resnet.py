@@ -117,7 +117,7 @@ class ResNet(nn.Module):
             raise ValueError('block_name shoule be Basicblock or Bottleneck')
 
         self.inplanes = num_filters[0]
-        self.conv1 = nn.Conv2d(3, num_filters[0], kernel_size=3, padding=1,
+        self.conv1 = nn.Conv2d(1, num_filters[0], kernel_size=3, padding=1,
                                bias=False)
         self.bn1 = nn.BatchNorm2d(num_filters[0])
         self.relu = nn.ReLU(inplace=True)
@@ -125,7 +125,7 @@ class ResNet(nn.Module):
         self.layer2 = self._make_layer(block, num_filters[2], n, stride=2)
         self.layer3 = self._make_layer(block, num_filters[3], n, stride=2)
         self.avgpool = nn.AvgPool2d(8)
-        #self.fc = nn.Linear(num_filters[3] * block.expansion, num_classes)
+        self.fc = nn.Linear(num_filters[3] * block.expansion, num_classes)
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -191,7 +191,7 @@ class ResNet(nn.Module):
         x = self.avgpool(x)
         x = x.view(x.size(0), -1)
         f4 = x
-        #x = self.fc(x)
+        x = self.fc(x)
 
         if is_feat:
             if preact:
@@ -199,7 +199,7 @@ class ResNet(nn.Module):
             else:
                 return [f0, f1, f2, f3, f4], None
         else:
-            return None
+            return x
 
 
 def resnet8(**kwargs):
