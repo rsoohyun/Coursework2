@@ -29,13 +29,13 @@ parser.add_argument("--latent_dim", type=int, default=100, help="dimensionality 
 parser.add_argument("--n_classes", type=int, default=10, help="number of classes for dataset")
 parser.add_argument("--img_size", type=int, default=32, help="size of each image dimension")
 parser.add_argument("--channels", type=int, default=1, help="number of image channels")
-parser.add_argument("--model", type=str, default="vgg8", help="model name")
-parser.add_argument("--confidence", type=int, default=0.7, help="confidence score for training classifier with generated images")
+parser.add_argument("--model", type=str, default="vgg16", help="model name")
+parser.add_argument("--confidence", type=int, default=0.0, help="confidence score for training classifier with generated images")
 
 parser.add_argument("--generated", type=bool, default=False, help="use generated image or not")
-parser.add_argument("--generator_path", type=str, default="", help="pretrained generator")
-parser.add_argument("--gan_model", type=str, default="DCGAN_2", choices=["DCGAN_2", "DCGAN_2_vbn", "CGAN", "CGAN_vbn"], help="kind of generator that we will use to generate image")
-parser.add_argument("--trial", type=int, default=1, help="-th trial")
+parser.add_argument("--generator_path", type=str, default="/home/rsoohyun/Coursework2/CGAN_trial2.pth", help="pretrained generator")
+parser.add_argument("--gan_model", type=str, default="CGAN", choices=["DCGAN_2", "DCGAN_2_vbn", "CGAN", "CGAN_vbn"], help="kind of generator that we will use to generate image")
+parser.add_argument("--trial", type=int, default=2, help="-th trial")
 parser.add_argument("--ckpt_dir", type=str, default="./classifier_ckpt", help="checkpoint path of trained classifier")
 parser.add_argument("--ckpt_path", type=str, default=None, help="Resume training from this checkpoint")
 
@@ -158,8 +158,8 @@ def train(opt, best):
             labels = labels.to(opt.device)
 
             if opt.generated:
-                z = Variable(opt.Tensor(np.random.normal(0, 1, (inputs.shape[0], opt.latent_dim))))
-                gen_labels = Variable(opt.LongTensor(np.random.randint(0, opt.n_classes, opt.batch_size)))
+                z = Variable(opt.Tensor(np.random.normal(0, 1, (opt.batch_size, opt.latent_dim))))
+                gen_labels = Variable(opt.LongTensor(np.random.randint(0, 10, opt.batch_size)))
 
                 if (opt.gan_model == "DCGAN_2") or (opt.gan_model == "DCGAN_2_vbn"): 
                     with torch.no_grad():
@@ -170,16 +170,16 @@ def train(opt, best):
                 
                 # https://towardsdatascience.com/artificial-data-for-image-classification-5b2ede40640f
                 logits = model(gen_imgs)
-                pred_labels = torch.argmax(logits,1)
-                confidence = opt.confidence
+                # pred_labels = torch.argmax(logits,1)
+                # confidence = opt.confidence
 
-                prob = F.softmax(logits, dim=1)
-                mostlikely = np.asarray([prob[i, pred_labels[i]].item() for i in range(len(prob))])
-                want_keep = mostlikely > confidence
-                weight = len(prob) / len(want_keep)
-                loss = 1 * weight
-                if sum(want_keep) != 0:
-                    loss = criterion(logits[want_keep], pred_labels[want_keep]) * weight
+                # prob = F.softmax(logits, dim=1)
+                # mostlikely = np.asarray([prob[i, pred_labels[i]].item() for i in range(len(prob))])
+                # want_keep = mostlikely > confidence
+                # weight = len(prob) / len(want_keep)
+                # loss = 1 * weight
+                #if sum(want_keep) != 0:
+                loss = criterion(logits, gen_labels)
                 
                 loss.backward()
 
@@ -219,6 +219,27 @@ def train(opt, best):
                     global_step, 
                     test_loss_v,
                     accuracy))
+
+            if (global_step == 1000):
+                fig_recon, ax_recon = plt.subplots(3,1)
+                ax_recon[0].plot(train_step, train_loss)
+                ax_recon[0].set_xlabel("global step")
+                ax_recon[0].set_ylabel("train loss")
+                ax_recon[0].set_title("Train/loss")
+
+                ax_recon[1].plot(test_step, test_loss)
+                ax_recon[1].set_xlabel("global step")
+                ax_recon[1].set_ylabel("test loss")
+                ax_recon[1].set_title("Test/loss")
+
+                ax_recon[2].plot(test_step, test_acc)
+                ax_recon[2].set_xlabel("global step")
+                ax_recon[2].set_ylabel("test accuracy")
+                ax_recon[2].set_title("Test/Accuracy")
+
+                fig_recon.tight_layout(pad=2.0)
+
+                plt.savefig(f'{opt.model}_conf{opt.confidence}_step{global_step}.png')
             
             model.train()
 

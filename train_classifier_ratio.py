@@ -18,7 +18,7 @@ from DCGAN_2_vbn import Generator as DCGAN_vbn_G
 from CGAN_vbn import Generator as CGAN_vbn_G
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--n_epochs", type=int, default=200, help="number of epochs of training")
+parser.add_argument("--n_epochs", type=int, default=20, help="number of epochs of training")
 parser.add_argument("--batch_size", type=int, default=64, help="size of the batches")
 parser.add_argument("--lr", type=float, default=0.0002, help="adam: learning rate")
 parser.add_argument("--b1", type=float, default=0.5, help="adam: decay of first order momentum of gradient")
@@ -29,12 +29,12 @@ parser.add_argument("--n_classes", type=int, default=10, help="number of classes
 parser.add_argument("--img_size", type=int, default=32, help="size of each image dimension")
 parser.add_argument("--channels", type=int, default=1, help="number of image channels")
 parser.add_argument("--model", type=str, default="ResNet18", help="model name")
-parser.add_argument("--confidence", type=int, default=0.7, help="confidence score for training classifier with generated images")
+parser.add_argument("--confidence", type=int, default=0.0, help="confidence score for training classifier with generated images")
 
-parser.add_argument("--ratio", type=float, default=0.5, help="ratio of real image, real : synthetic")
-parser.add_argument("--generator_path", type=str, default="/root/CW2/Coursework2/data/ckpt/CGAN_trial1.pth", help="pretrained generator")
+parser.add_argument("--ratio", type=float, default=0.3, help="ratio of real image, real : synthetic")
+parser.add_argument("--generator_path", type=str, default="/home/rsoohyun/Coursework2/CGAN_trial2.pth", help="pretrained generator")
 parser.add_argument("--gan_model", type=str, default="CGAN", choices=["DCGAN_2", "DCGAN_2_vbn", "CGAN", "CGAN_vbn"], help="kind of generator that we will use to generate image")
-parser.add_argument("--trial", type=int, default=1, help="-th trial")
+parser.add_argument("--trial", type=int, default=2, help="-th trial")
 parser.add_argument("--ckpt_dir", type=str, default="./classifier_ckpt", help="checkpoint path of trained classifier")
 parser.add_argument("--ckpt_path", type=str, default=None, help="Resume training from this checkpoint")
 
@@ -168,7 +168,7 @@ def train(opt, best):
             syn_inputs = syn_inputs.to(opt.device)
 
             # synthetic image
-            z = Variable(opt.Tensor(np.random.normal(0, 1, (syn_inputs.shape[0], opt.latent_dim))))
+            z = Variable(opt.Tensor(np.random.normal(0, 1, (opt.synthetic_batch, opt.latent_dim))))
             gen_labels = Variable(opt.LongTensor(np.random.randint(0, 10, opt.synthetic_batch)))
 
             if (opt.gan_model == "DCGAN_2") or (opt.gan_model == "DCGAN_2_vbn"): 
@@ -218,7 +218,7 @@ def train(opt, best):
         
             if best_acc < accuracy:
                 best_acc = accuracy
-                ckpt_path = os.path.join(opt.ckpt_dir, f"{opt.model}_ratio_{opt.ratio}_trial{opt.trial}_best.pth")
+                ckpt_path = os.path.join(opt.ckpt_dir, f"{opt.model}_ratio_{opt.ratio}_conf{opt.confidence}_trial{opt.trial}_best.pth")
                 torch.save({
                     "model": model.state_dict(),
                     "optimizer": optimizer.state_dict(),
@@ -230,6 +230,27 @@ def train(opt, best):
                     global_step, 
                     test_loss_v,
                     accuracy))
+            
+            if (global_step == 1000):
+                fig_recon, ax_recon = plt.subplots(3,1)
+                ax_recon[0].plot(train_step, train_loss)
+                ax_recon[0].set_xlabel("global step")
+                ax_recon[0].set_ylabel("train loss")
+                ax_recon[0].set_title("Train/loss")
+
+                ax_recon[1].plot(test_step, test_loss)
+                ax_recon[1].set_xlabel("global step")
+                ax_recon[1].set_ylabel("test loss")
+                ax_recon[1].set_title("Test/loss")
+
+                ax_recon[2].plot(test_step, test_acc)
+                ax_recon[2].set_xlabel("global step")
+                ax_recon[2].set_ylabel("test accuracy")
+                ax_recon[2].set_title("Test/Accuracy")
+
+                fig_recon.tight_layout(pad=2.0)
+
+                plt.savefig(f'{opt.model}_ratio{opt.ratio}_conf{opt.confidence}_step{global_step}.png')
             
             model.train()
 
